@@ -1,0 +1,4 @@
+{
+    "haskell.hlint.executablePath": "/Users/jiangjunguang/.local/bin/hlint",
+    "haskell.ghcMod.executablePath": "stack"
+}
