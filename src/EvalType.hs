@@ -11,7 +11,9 @@ import Control.Monad
 
 data Context = Context { -- 可以用某种方式定义上下文，用于记录变量绑定状态
     getVars :: M.Map String Type,
-    getCtors :: M.Map String ([Type], String)                        
+    -- key = constructor name
+    -- value = ([Type of parameter], ADT name)
+    getCtors :: M.Map String ([Type], String)   
 } deriving (Show, Eq)
 
 type ContextState a = StateT Context Maybe a
@@ -37,31 +39,18 @@ findVar x = do
     env <- get 
     case getVars env M.!? x of
         Just t -> return t
-        Nothing -> lift Nothing 
-
-findCtors :: String -> ContextState ([Type], String)
-findCtors = undefined
+        Nothing -> case getCtors env M.!? x of
+            (Just (types, adtName)) -> return $ Prelude.foldr TArrow (TData adtName) types
+            Nothing -> lift Nothing 
 
 isBool :: Expr -> ContextState Type
-isBool e = do
-  et <- eval e
-  case et of
-    TBool -> return TBool
-    _ -> lift Nothing
+isBool e = isType e [TBool]
 
 isInt :: Expr -> ContextState Type
-isInt e = do
-    t <- eval e
-    if t == TInt
-        then return TInt
-        else lift Nothing
+isInt e = isType e [TInt]
 
 isChar :: Expr -> ContextState Type
-isChar e = do
-    t <- eval e
-    if t == TChar
-        then return TChar
-        else lift Nothing
+isChar e = isType e [TChar]
 
 areTwoInts :: Expr -> Expr -> ContextState Type
 areTwoInts e1 e2 = do
@@ -82,21 +71,16 @@ isSameType e1 e2 = do
     if t1 == t2 then return TBool
     else lift Nothing
 
-evalLetRec :: String -> String -> Type -> Expr -> Type -> Expr -> ContextState Type
-evalLetRec = undefined
-
-evalApply :: Expr -> Expr -> ContextState Type
-evalApply = undefined
-
-getADTTypes :: [ADT] -> Map String Type
-getADTTypes = undefined
-
+-- convert ADT to a constructor map
 getADTCtor :: ADT -> Map String ([Type], String)
 getADTCtor (ADT adtName conss) = Prelude.foldl (\upd (cons, types) -> M.insert cons (types, adtName) upd) M.empty conss
 
+-- convert ADTs to a constructor map
 getADTCtors :: [ADT] -> Map String ([Type], String)
-getADTCtors = Prelude.foldl (\upd adt -> M.union upd (getADTCtor adt)) M.empty
+getADTCtors = Prelude.foldl (\upd adt -> M.union (getADTCtor adt) upd) M.empty
 
+-- match the pattern with the type
+-- return all the variable map if matched
 matchPT :: Pattern -> Type -> M.Map String ([Type], String) -> Maybe (M.Map String Type)
 matchPT (PBoolLit _) t _ = if t == TBool then return M.empty else Nothing
 matchPT (PIntLit _)  t _ = if t == TInt then return M.empty else Nothing
@@ -108,7 +92,7 @@ matchPT (PData con patterns) t ctor = do
     if adtName == adtName' && length patterns == length types then foldM 
         (\upd (p', t') -> do
             map <- matchPT p' t' ctor
-            return $ M.union upd map
+            return $ M.union map upd
         ) M.empty (zip patterns types)
     else Nothing
 
@@ -181,13 +165,7 @@ eval (ELetRec f (x, tx) (e1, ty) e2) = do
     if ty_ /= ty then lift Nothing
     else withVar f (TArrow tx ty) $ eval e2
 
-eval (EVar x) = do
-    env <- get 
-    case getVars env M.!? x of
-        Just t -> return t
-        Nothing -> case getCtors env M.!? x of
-            (Just (types, adtName)) -> return $ Prelude.foldr TArrow (TData adtName) types
-            Nothing -> lift Nothing
+eval (EVar x) = findVar x
 
 eval (EApply e1 e2) = do
     t1 <- eval e1
