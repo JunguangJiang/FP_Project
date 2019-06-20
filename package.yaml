@@ -24,6 +24,8 @@ dependencies:
 - HTF
 - mtl
 - containers
+- tasty
+- tasty-hunit
 
 library:
   source-dirs: src
