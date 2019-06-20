@@ -4,6 +4,7 @@ module EvalValue where
 import AST
 import Control.Monad.State
 import Data.Map.Strict as M
+import Control.Monad.Loops
 
 data Value
   = VBool Bool
@@ -91,6 +92,38 @@ withVars vars a = do
   put env
   return r
 
+getADTCtor :: ADT -> Map String Value
+getADTCtor (ADT adtName conss) = Prelude.foldl (\upd (cons, types) -> M.insert cons 
+  (if Prelude.null types then VAdt cons [] else VAdtFun cons [] (length types)) 
+  upd ) M.empty conss
+
+getADTCtors :: [ADT] -> Map String Value
+getADTCtors = Prelude.foldl (\upd adt -> M.union upd (getADTCtor adt)) M.empty
+
+matchPV :: Pattern -> Value -> Maybe (Map String Value)
+matchPV (PBoolLit p) (VBool v) = if p == v then return M.empty else Nothing
+matchPV (PIntLit p) (VInt v) = if p == v then return M.empty else Nothing
+matchPV (PCharLit p) (VChar v) = if p == v then return M.empty else Nothing
+matchPV (PVar s) v = return $ M.fromList [(s, v)]
+matchPV (PData con patterns) (VAdt cons values) = 
+  if con == cons then 
+    foldM (\upd (p, v) -> do
+    map <- matchPV p v
+    return $ M.union map upd
+    ) M.empty (zip patterns values)
+  else Nothing
+matchPV _ _ = Nothing
+
+evalCase :: Expr -> [(Pattern, Expr)] -> ContextState Value
+evalCase e pes = do
+  v <- eval e
+  matched <- return $ firstM (\(p, expr) -> case matchPV p v of 
+    Just _ -> Just True
+    Nothing -> Just False) pes
+  case matched of
+    Just (Just (p, expr)) -> let (Just vars) = matchPV p v in withVars vars $ eval expr
+    _ -> lift Nothing
+
 eval :: Expr -> ContextState Value
 eval (EBoolLit b) = return $ VBool b
 eval (EIntLit i) = return $ VInt i
@@ -168,15 +201,18 @@ eval (EVar x) = do
 
 eval (EApply e1 e2) = do
   v1 <- eval e1
-  let VClosure env x b = v1
   v2 <- eval e2
-  withVars (getVars env) . withVar x v2 $ eval b
+  case v1 of
+    (VClosure env x b) ->
+      withVars (getVars env) . withVar x v2 $ eval b
+    (VAdtFun cons values left) -> 
+      if left == 1 then return (VAdt cons new_values) else return (VAdtFun cons new_values (left-1)) where new_values = values++[v2]
 
-eval _ = undefined
+eval (ECase e pes) = evalCase e pes
 
 evalProgram :: Program -> Maybe Value
 evalProgram (Program adts body) = evalStateT (eval body) $
-  Context {getVars = M.empty } -- 可以用某种方式定义上下文，用于记录变量绑定状态
+  Context {getVars = getADTCtors adts } -- 可以用某种方式定义上下文，用于记录变量绑定状态
 
 
 evalValue :: Program -> Result
