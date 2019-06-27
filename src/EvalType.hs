@@ -1,4 +1,3 @@
--- | 这是其中一种实现方式的代码框架。你可以参考它，或用你自己的方式实现，只要按需求完成 evalType :: Program -> Maybe Type 就行。
 module EvalType where
 
 import AST
@@ -10,14 +9,17 @@ import Control.Monad
 -- type TEnv = Map String Type
 
 data Context = Context { -- 可以用某种方式定义上下文，用于记录变量绑定状态
+    -- key : variable name
+    -- value : variable type
     getVars :: M.Map String Type,
-    -- key = constructor name
-    -- value = ([Type of parameter], ADT name)
+    -- key : constructor name
+    -- value : ([Type of parameters], ADT name)
     getCtors :: M.Map String ([Type], String)   
 } deriving (Show, Eq)
 
 type ContextState a = StateT Context Maybe a
 
+-- return a context with some variables
 withVars :: Map String Type -> ContextState a -> ContextState a
 withVars map op = do
     env <- get
@@ -34,6 +36,7 @@ withVar x t op = do
     put env -- recover state
     return r
 
+-- find Type for a variable
 findVar :: String -> ContextState Type
 findVar x = do
     env <- get 
@@ -57,6 +60,7 @@ areTwoInts e1 e2 = do
     isInt e1
     isInt e2
 
+--whether Type of expression e is in types
 isType :: Expr -> [Type] -> ContextState Type
 isType e types = do
     t <- eval e
@@ -79,8 +83,9 @@ getADTCtor (ADT adtName conss) = Prelude.foldl (\upd (cons, types) -> M.insert c
 getADTCtors :: [ADT] -> Map String ([Type], String)
 getADTCtors = Prelude.foldl (\upd adt -> M.union (getADTCtor adt) upd) M.empty
 
--- match the pattern with the type
+-- match the Pattern with the Type
 -- return all the variable map if matched
+-- ctor : the constructor map
 matchPT :: Pattern -> Type -> M.Map String ([Type], String) -> Maybe (M.Map String Type)
 matchPT (PBoolLit _) t _ = if t == TBool then return M.empty else Nothing
 matchPT (PIntLit _)  t _ = if t == TInt then return M.empty else Nothing

@@ -11,7 +11,6 @@ data Value
   | VInt Int
   | VChar Char
   | VClosure Context String Expr
-  | VFun String Context String Expr
   | VAdt String [Value]
   | VAdtFun String [Value] Int
   deriving (Show, Eq)
@@ -98,7 +97,7 @@ getADTCtor (ADT adtName conss) = Prelude.foldl (\upd (cons, types) -> M.insert c
   upd ) M.empty conss
 
 getADTCtors :: [ADT] -> Map String Value
-getADTCtors = Prelude.foldl (\upd adt -> M.union upd (getADTCtor adt)) M.empty
+getADTCtors = Prelude.foldl (\upd adt -> M.union (getADTCtor adt) upd) M.empty
 
 matchPV :: Pattern -> Value -> Maybe (Map String Value)
 matchPV (PBoolLit p) (VBool v) = if p == v then return M.empty else Nothing
@@ -180,8 +179,8 @@ eval (EIf e1 e2 e3) = do
 
 eval (ELambda (pn, pt) e) = do
   env <- get
-  -- let env' = M.filterWithKey (\x _ -> x /= pn)
-  return $ VClosure env pn e -- needs modification
+  -- let env' = env {getVars = M.filterWithKey (\x _ -> x /= pn) (getVars env)}
+  return $ VClosure env pn e
 
 eval (ELet (n, e1) e2) = do
   v1 <- eval e1
@@ -190,7 +189,6 @@ eval (ELet (n, e1) e2) = do
 eval (ELetRec f (x, tx) (e1, ty) e2) = do
   env <- get
   let fv = VClosure env x e1
-  -- v1 <- withVar f fv $ eval e1
   withVar f fv $ eval e2
 
 eval (EVar x) = do

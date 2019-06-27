@@ -16,7 +16,6 @@ callFun :: Expr -> [Expr] -> Expr
 callFun f [e] = EApply f e
 callFun f (e:es) = callFun (EApply f e) es
 
-
 -- Maybe Int 和 [Int] 
 maybeInt = ADT "Maybe" [("Just", [TInt]), ("Nothing",[])]
 intList = ADT "List" [("List", [TInt, TData "List"]), ("Null", [])]
@@ -28,7 +27,6 @@ callList (x:xs) = callFun (EVar "List") [EIntLit x, callList xs]
 -- map :: (Int -> Int) -> [Int] -> [Int]
 -- map _ [] = []
 -- map f (x:xs) = f x : map f xs
-
 map' = makeFun ("map", TData "List") [("f", TArrow TInt TInt), ("x:xs", TData "List")] (
     ECase (EVar "x:xs") [
         (PData "Null" [], EVar "Null"),

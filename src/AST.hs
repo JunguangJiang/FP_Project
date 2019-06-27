@@ -26,6 +26,8 @@ data Type
   | TData String
   -- ^代数数据类型。@TData adtName@ 中的 @adtName@ 是该类型的名称。
 
+  | TUnknown
+
   deriving (Show, Eq)
 
 

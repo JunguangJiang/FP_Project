@@ -27,6 +27,8 @@ dependencies:
 - tasty
 - tasty-hunit
 - monad-loops
+- parser-combinators
+- megaparsec
 
 library:
   source-dirs: src
