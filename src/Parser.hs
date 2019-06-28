@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeFamilies        #-}
+
 module Parser where
 
 import AST
@@ -7,6 +9,7 @@ import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+import EvalValue
 
 type Parser = Parsec Void String
 
@@ -31,45 +34,62 @@ character = between (symbol "'") (symbol "'") $ lexeme L.charLiteral
 boolean :: Parser Bool
 boolean = 
     do 
-        symbol "True" 
+        reserved "True" 
         return True
     <|> 
     do 
-        symbol "False"
+        reserved "False"
         return False
 
 getOneType :: Parser Type
 getOneType = 
     do 
-        symbol "Int"
+        reserved "Int"
         return TInt
     <|>
     do
-        symbol "Char"
+        reserved "Char"
         return TChar
     <|>
     do 
-        symbol "Bool"
+        reserved "Bool"
         return TBool
+    <|>
+    do
+        t <- identifier "upper"
+        return $ TData t
+    <|>
+        parens getType
+
+-- getType :: Parser Type
+-- getType = 
+--     getOneType
+--     <|>
+--     do 
+--         (tx,ty) <- getArrowType
+--         return $ TArrow tx ty
+--     <|>
+--        parens getType
 
 getType :: Parser Type
-getType = 
-    getOneType
-    <|>
-    do 
-        (tx,ty) <- getArrowType
-        return $ TArrow tx ty
-
-getArrowType :: Parser (Type, Type)
-getArrowType = do 
+getType = do
     tx <- getOneType
-    symbol "->"
-    ty <- getType
-    return (tx, ty)
+    (
+        do
+            symbol "->"
+            ty <- getType
+            return $ TArrow tx ty
+        <|>
+        return tx
+        )
 
--- getTypes :: Parser [Type]
--- getTypes = sepBy1 getOneType (symbol "->")
 
+-- getArrowType :: Parser (Type, Type)
+-- getArrowType = do 
+--     tx <- getType
+--     symbol "->"
+--     ty <- getType
+--     return (tx, ty)
 
 -- | 'semi' parses a semicolon.
 semi :: Parser String
@@ -78,94 +98,67 @@ semi = symbol ";"
 comma :: Parser String
 comma = symbol ","
 
+division :: Parser String
+division = symbol "|"
+
 reserved :: String -> Parser ()
 reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 rws :: [String] -- list of reserved words
 rws = ["if","then","else","True","False","not","and","or", "let", "in", "case", "of", "data", "Char", "Int", "Bool"]
 
-{- Parse an identifier
-        <ident> ::= [_A-Za-z][_A-Za-z0-9']
--}
-identifier :: Parser String
-identifier = (lexeme . try) (p >>= check)
+letters :: String
+letters = "ABCDEFGHIJKLMNOPRSTUVWXYZ"
+
+-- Parse an identifier
+--        <ident> ::= [_A-Za-z][_A-Za-z0-9']
+identifier :: String -> Parser String
+identifier start = (lexeme . try) (p >>= check)
     where
-    p       = (:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_' <|> char '\'')
+    sf = case start of 
+        "upper" -> upperChar
+        "lower" -> lowerChar
+        _ -> letterChar
+    p       = (:) <$> (sf <|> char '_') <*> many (alphaNumChar <|> char '_' <|> char '\'')
     check x = if x `elem` rws
                 then fail $ "keyword " ++ show x ++ " cannot be an identifier"
                 else return x
 
-binOp :: Parser (Expr->Expr->Expr)
-binOp = 
-    do 
-        symbol "+" 
-        return $ EAdd
-    <|> do 
-        symbol "-" 
-        return $ ESub
+-- upperIdentifier = identifier upper
+-- lowerIdentifier = identifier lower
+-- allIdentifier = identifier letter
 
-----------------------------------------------------------------
+type Op = Expr->Expr->Expr
+
 -- The Program
-----------------------------------------------------------------
-program :: Parser Program
-program = do {
-    whiteSpace;
-    e <- expr;
-    eof;
-    return $ Program [] e
-}
--- program :: Parser Program
--- program =  do{whiteSpace
---              ;(tds,vds) <- manyAlternate adtDecl vDecl
---              ;eof
---              ;return $ Program tds (head vds)
---              }
+program :: Parser [Program]
+program = do 
+    whiteSpace
+    (adts, exprs) <- manyAlternate adt expr
+    eof
+    return $ Prelude.map (Program adts) exprs
 
--- manyAlternate :: Parser a -> Parser b -> Parser ([a],[b])
--- manyAlternate pa pb = do{as<-some pa; (as',bs') <- manyAlternate pa pb; return (as++as',bs')}
---                       <|>
---                       do{bs<-some pb; (as',bs') <- manyAlternate pa pb; return (as',bs++bs')}
---                       <|>
---                       return ([],[])
-
--- ----------------------------------------------------------------
--- -- ADT Declaration
--- -- data 
--- ----------------------------------------------------------------
--- adtDecl :: Parser ADT
--- adtDecl =  do{reserved "data"
---            ;t <- identifier
---            ;symbol "="
---            ;ts <- braces $ sepBy1 identifier semi
---            ;return $ ADT t ts
---            }
---            <?> "type declaration"
-
-
--- Expression
-expr :: Parser Expr
-expr = choice
-     [
-        try atomExpr,
-        try binaryExpr,
-        lamdaExpr,
-        letExpr,
-        ifExpr
-     ]
-     <?> "expression"
-
-atomExpr :: Parser Expr
-atomExpr = choice
-        [
-            try var,
-            try litExpr,
-            parens expr
-        ]
-        <?> "atomic expression"
+manyAlternate :: Parser a -> Parser b -> Parser ([a],[b])
+manyAlternate pa pb = 
+    do{
+        as<-some pa; 
+        semi;
+        (as',bs') <- manyAlternate pa pb; 
+        return (as++as',bs')
+    }
+    <|>
+    do{
+        bs<-some pb; 
+        semi;
+        (as',bs') <- manyAlternate pa pb; 
+        return (as',bs++bs')
+    }
+    <|>
+    return ([],[])
 
 -- Variable
 var :: Parser Expr
-var = EVar <$> identifier
+var = EVar <$> identifier "letter"
 
 -- Literal Expression
 litExpr :: Parser Expr
@@ -175,17 +168,20 @@ litExpr =
     ECharLit <$> character
     <|>
     EBoolLit <$> boolean
+    <?> "expecting int or char or bool"
 
 typedVar :: Parser (String, Type)
 typedVar = do
-    e <- identifier
+    e <- identifier "letter"
     (do
-        symbol "::"
+        symbol ":"
         t <- getType
         return (e, t)
         <|>
-        return (e, TUnknown)
+        return (e, TInt)
         )
+    <|> parens typedVar
+    <?> "typed var"
 
 lamdaExpr :: Parser Expr
 lamdaExpr = do
@@ -195,46 +191,276 @@ lamdaExpr = do
     ELambda (pn, pt) <$> expr
     <?> "lambda expression"
 
-letExpr :: Parser Expr
-letExpr = do
-    symbol "let"
-    n <- identifier
+type Bind = Expr->Expr
+
+bindExpr :: Parser Bind
+bindExpr = do
+    n <- identifier "lower"
     symbol "="
+    e <- expr
     (
         do
-            ELambda (x,tx) e1 <- parens lamdaExpr
             symbol "::"
-            (tx, ty) <- getArrowType
-            symbol "in"
-            ELetRec n (x, tx) (e1, ty) <$> expr
-        <|>
-        do
-            e1 <- expr
-            symbol "in"
-            ELet (n, e1) <$> expr
+            let ELambda (x,tx) e1 = e
+            -- (tx, ty) <- getType
+            TArrow tx ty <- getType
+            return $ ELetRec n (x, tx) (e1, ty)
+        <|> 
+        do 
+            return $ ELet (n,e)
         )
+        -- <?> "bind expression"
+
+letExpr :: Parser Expr
+letExpr = do
+    reserved "let"
+    binds <- sepBy1 bindExpr comma
+    reserved "in"
+    e <- expr
+    return $ Prelude.foldr (\b upd-> b upd) e binds
+    <?> "let expression"
+
+primaryExpr :: Parser Expr
+primaryExpr = choice
+    [
+        try var,
+        try litExpr,
+        parens expr
+    ]
+    <?> "primary expression"
+
+applyExpr :: Parser Expr
+applyExpr = do 
+    exprs <- some primaryExpr
+    return $ foldl1 EApply exprs
+    <?> "application"
+
+unaryExpr :: Parser Expr
+unaryExpr = do
+    reserved "not"
+    ENot <$> applyExpr
+    <|>
+    applyExpr
+    <?> "unary expression"
+
+
+multiplicativeExpr :: Parser Expr
+multiplicativeExpr = do
+    e <- unaryExpr
+    (
+        do
+            op <- multiplicativeOp
+            op e <$> multiplicativeExpr
+        <|>
+        return e
+        )
+     <?> "multiplicative expression"
+
+
+multiplicativeOp :: Parser Op
+multiplicativeOp = 
+    do 
+        symbol "*" 
+        return EMul
+    <|> do 
+        symbol "`div`" 
+        return EDiv
+    <|> do
+        symbol "`mod`"
+        return EMod
+
+additiveExpr :: Parser Expr
+additiveExpr = do
+    e <- multiplicativeExpr
+    (
+        do
+            op <- additiveOp
+            op e <$> additiveExpr
+        <|>
+        return e
+        )
+    <?> "additive expression"
+
+additiveOp :: Parser Op
+additiveOp =
+    do
+        symbol "+"
+        return EAdd
+    <|> do
+        symbol "-"
+        return ESub
+
+relationalExpr :: Parser Expr
+relationalExpr = do
+    e <- additiveExpr
+    (
+        do
+            op <- relationalOp
+            op e <$> relationalExpr
+        <|>
+        return e
+        )
+    <?> "relational expression"
+
+relationalOp :: Parser Op
+relationalOp = 
+    do
+        symbol "<"
+        return ELt
+    <|> do
+        symbol "<="
+        return ELe
+    <|> do
+        symbol ">"
+        return EGt
+    <|> do
+        symbol ">="
+        return EGe
+
+equalityExpr :: Parser Expr
+equalityExpr = do
+    e <- relationalExpr
+    (
+        do
+            op <- equalityOp
+            op e <$> equalityExpr
+        <|>
+        return e
+        )
+    <?> "equality expression"
+
+
+equalityOp :: Parser Op
+equalityOp = 
+    do
+        symbol "=="
+        return EEq
+    <|> do
+        symbol "/="
+        return ENeq
+
+andExpr :: Parser Expr
+andExpr = do
+    e <- equalityExpr
+    (
+        do
+            reserved "and"
+            EAnd e <$> andExpr
+        <|>
+        return e
+        )
+        <?> "and expression"
+
+orExpr :: Parser Expr
+orExpr = do
+    e <- andExpr
+    (
+        do
+            reserved "or"
+            EOr e <$> orExpr
+        <|>
+        return e
+        )
+        <?> "or expression"
     
 ifExpr :: Parser Expr
 ifExpr = do
-    symbol "if"
-    e1 <- expr
-    symbol "then"
+    reserved "if"
+    e1 <- orExpr
+    reserved "then"
     e2 <- expr
-    symbol "else"
-    EIf e1 e2 <$> expr
+    reserved "else"
+    EIf e1 e2 <$> ifExpr
+    <|>
+    orExpr
+    <?> "if expression"
 
-binaryExpr :: Parser Expr
-binaryExpr = do
-    e1 <- expr
-    op <- binOp
-    e2 <- expr
-    return $ op e1 e2
+caseExpr :: Parser Expr
+caseExpr = do
+    reserved "case"
+    e0 <- expr
+    reserved "of"
+    pes <- braces $ sepBy1 alt comma
+    return $ ECase e0 pes
+    <?> "Case Expression"
+
+alt :: Parser (Pattern, Expr)
+alt = do
+    p <- pattern
+    symbol "->"
+    e <- expr
+    return $ (p, e)
+    <?> "Case alternative"
+
+pdata :: Parser Pattern
+pdata = do
+    x <- identifier "upper"
+    patterns <- many pattern 
+    return $ PData x patterns
+
+pattern :: Parser Pattern
+pattern = do
+    PIntLit <$> integer
+    <|>
+    PCharLit <$> character
+    <|>
+    PBoolLit <$> boolean
+    <|>
+    try pdata
+    <|>
+    PVar <$> identifier "lower"
+
+-- verticalBar :: Parser 
+
+adt :: Parser ADT
+adt = do
+    reserved "data"
+    t <- identifier "upper"
+    symbol "="
+    conss <- sepBy1 constructor division
+    return $ ADT t conss
+
+constructor :: Parser (String, [Type])
+constructor = do
+    cons <- identifier "upper"
+    types <- many getType
+    return (cons, types)
+
+
+expr :: Parser Expr
+expr = choice 
+    [
+        letExpr,
+        lamdaExpr,
+        ifExpr,
+        caseExpr
+    ]
 
 main :: IO ()
-main = do
-    -- let input = "let x = 3 in x"
-    -- let input = "\\x::Int->(\\y::Int->x)"
-    -- let input = "let f=(\\var->4)::Int->Int in var"
-    -- let input = "let f=(\\var->4)::Int->Int in (if var then True else False)"
-    let input = "4+5"
-    parseTest program input
+main = getAST True
+
+getAST :: Bool -> IO ()
+getAST eval = do
+    input <- getLines
+    case parse program "" input of
+        Left err -> putStr $ errorBundlePretty err
+        Right result -> mapM_ (
+            \x -> do
+                putStr $ show x
+                if eval then do
+                    putStr " = "
+                    putStrLn $ show $ EvalValue.evalProgram x
+                    else return ()
+                putStr "\n" 
+            ) result
+            
+
+getLines :: IO String
+getLines = do
+    line <- getLine
+    if line == ""
+        then return ""
+        else 
+            do 
+                rest <- getLines
+                return $ line ++ rest

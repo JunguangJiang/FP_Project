@@ -212,10 +212,14 @@ evalProgram :: Program -> Maybe Value
 evalProgram (Program adts body) = evalStateT (eval body) $
   Context {getVars = getADTCtors adts } -- 可以用某种方式定义上下文，用于记录变量绑定状态
 
+value2result :: Value -> Result
+value2result (VBool b) = RBool b
+value2result (VInt i) = RInt i
+value2result (VChar c) = RChar c
+value2result (VAdt adtName values) = RAdt adtName (Prelude.map value2result values)
+value2result _ = RInvalid
 
 evalValue :: Program -> Result
 evalValue p = case evalProgram p of
-  Just (VBool b) -> RBool b
-  Just (VInt i) -> RInt i
-  Just (VChar c) -> RChar c
-  _ -> RInvalid
+  Just v -> value2result v
+  Nothing -> RInvalid
