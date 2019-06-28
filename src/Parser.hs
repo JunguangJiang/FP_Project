@@ -24,13 +24,15 @@ parens = between (symbol "(") (symbol ")")
 symbol :: String -> Parser String
 symbol = L.symbol whiteSpace
 
--- | 'integer' parses an integer.
+-- parses an integer.
 integer :: Parser Int
 integer = lexeme L.decimal
 
+-- parse a character
 character :: Parser Char
 character = between (symbol "'") (symbol "'") $ lexeme L.charLiteral
 
+-- parse boolean
 boolean :: Parser Bool
 boolean = 
     do 
@@ -61,16 +63,6 @@ getOneType =
     <|>
         parens getType
 
--- getType :: Parser Type
--- getType = 
---     getOneType
---     <|>
---     do 
---         (tx,ty) <- getArrowType
---         return $ TArrow tx ty
---     <|>
---        parens getType
-
 getType :: Parser Type
 getType = do
     tx <- getOneType
@@ -82,14 +74,6 @@ getType = do
         <|>
         return tx
         )
-
-
--- getArrowType :: Parser (Type, Type)
--- getArrowType = do 
---     tx <- getType
---     symbol "->"
---     ty <- getType
---     return (tx, ty)
 
 -- | 'semi' parses a semicolon.
 semi :: Parser String
@@ -107,11 +91,14 @@ reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 rws :: [String] -- list of reserved words
 rws = ["if","then","else","True","False","not","and","or", "let", "in", "case", "of", "data", "Char", "Int", "Bool"]
 
-letters :: String
-letters = "ABCDEFGHIJKLMNOPRSTUVWXYZ"
-
--- Parse an identifier
---        <ident> ::= [_A-Za-z][_A-Za-z0-9']
+{--
+Parse an identifier
+        <ident> ::= [_start][_A-Za-z0-9']
+the begin alphabet must be 
+    upper class if start is 'upper'
+    lower class if start is 'lower'
+    any letter otherwise
+--}
 identifier :: String -> Parser String
 identifier start = (lexeme . try) (p >>= check)
     where
@@ -123,12 +110,6 @@ identifier start = (lexeme . try) (p >>= check)
     check x = if x `elem` rws
                 then fail $ "keyword " ++ show x ++ " cannot be an identifier"
                 else return x
-
--- upperIdentifier = identifier upper
--- lowerIdentifier = identifier lower
--- allIdentifier = identifier letter
-
-type Op = Expr->Expr->Expr
 
 -- The Program
 program :: Parser [Program]
@@ -202,7 +183,6 @@ bindExpr = do
         do
             symbol "::"
             let ELambda (x,tx) e1 = e
-            -- (tx, ty) <- getType
             TArrow tx ty <- getType
             return $ ELetRec n (x, tx) (e1, ty)
         <|> 
@@ -256,6 +236,7 @@ multiplicativeExpr = do
         )
      <?> "multiplicative expression"
 
+type Op = Expr->Expr->Expr
 
 multiplicativeOp :: Parser Op
 multiplicativeOp = 
@@ -410,8 +391,6 @@ pattern = do
     <|>
     PVar <$> identifier "lower"
 
--- verticalBar :: Parser 
-
 adt :: Parser ADT
 adt = do
     reserved "data"
@@ -437,7 +416,7 @@ expr = choice
     ]
 
 main :: IO ()
-main = getAST True
+main = getAST False
 
 getAST :: Bool -> IO ()
 getAST eval = do

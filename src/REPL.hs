@@ -7,17 +7,26 @@ import Control.Monad (void)
 import Control.Monad.Combinators.Expr
 import Text.Megaparsec
 
-main :: IO ()
-main = getAST True
+-- single line mode
+line :: IO ()
+line = do
+    input <- getLine
+    REPL.eval (input++";")
 
-eval :: IO ()
-eval = do
+-- multiline mode
+lines :: IO ()
+lines = do
     input <- getLines
+    REPL.eval input
+
+-- eval a string to its value and type
+eval :: String -> IO ()
+eval input =
     case parse Parser.program "" input of
         Left err -> putStr $ errorBundlePretty err
         Right result -> mapM_ (
             \x -> do
                 putStr $ show $ EvalValue.evalValue x
                 putStr " :: "
-                putStrLn $ show $ EvalType.evalType x
+                print $ EvalType.evalType x
             ) result
